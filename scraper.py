@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 class YClientsScraper:
     def __init__(self, url="https://n911781.yclients.com/company/1168982/personal/select-time?o="):
         self.url = url
+        self.base_url = "https://n911781.yclients.com"
     
     def get_driver(self):
         chrome_options = Options()
@@ -32,17 +33,96 @@ class YClientsScraper:
         driver.set_page_load_timeout(60)
         return driver
     
+    def navigate_through_selection(self, driver):
+        """Проходит через выбор города и филиала"""
+        try:
+            # Шаг 1: Сначала перейдем на базовый URL для установки сессии
+            logger.info("Шаг 1: Переход на базовый URL")
+            driver.get(self.base_url)
+            time.sleep(4)
+            
+            logger.info(f"URL после базового перехода: {driver.current_url}")
+            
+            # Шаг 2: Ищем и кликаем на город Москва
+            if 'select-city' in driver.current_url or 'select-city' in driver.page_source.lower():
+                logger.info("Шаг 2: Ищем элемент города Москва...")
+                
+                # Пробуем разные способы найти Москву
+                city_clicked = False
+                
+                # Способ 1: Кнопка с value="2"
+                try:
+                    city_button = WebDriverWait(driver, 5).until(
+                        EC.element_to_be_clickable((By.XPATH, "//button[@value='2']"))
+                    )
+                    driver.execute_script("arguments[0].click();", city_button)
+                    logger.info("Город выбран через JavaScript клик на кнопку value='2'")
+                    city_clicked = True
+                except:
+                    pass
+                
+                # Способ 2: Ссылка на /select-city/2
+                if not city_clicked:
+                    try:
+                        city_link = driver.find_element(By.XPATH, "//a[contains(@href, '/select-city/2') or contains(@href, 'city=2')]")
+                        href = city_link.get_attribute('href')
+                        logger.info(f"Найдена ссылка на город: {href}")
+                        driver.get(href)
+                        logger.info("Переход по ссылке города")
+                        city_clicked = True
+                    except:
+                        pass
+                
+                # Способ 3: Прямой переход на URL с городом
+                if not city_clicked:
+                    logger.info("Прямой переход на URL с выбором города")
+                    driver.get(f"{self.base_url}/select-city/2/select-branch?o=")
+                    city_clicked = True
+                
+                if city_clicked:
+                    logger.info("Ожидание после выбора города (5 сек)...")
+                    time.sleep(5)
+                    logger.info(f"URL после выбора города: {driver.current_url}")
+            
+            # Шаг 3: Проверяем, есть ли страница выбора филиала
+            if 'select-branch' in driver.current_url:
+                logger.info("Шаг 3: Обнаружена страница выбора филиала")
+                
+                try:
+                    # Ищем филиал 1168982
+                    branch_elem = WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located((By.XPATH, f"//a[contains(@href, '1168982')] | //button[contains(@value, '1168982')]"))
+                    )
+                    branch_elem.click()
+                    logger.info("Филиал выбран")
+                    time.sleep(5)
+                except:
+                    logger.info("Не найден элемент филиала, переходим напрямую")
+                    driver.get(f"{self.base_url}/company/1168982/personal/select-time?o=")
+                    time.sleep(5)
+            else:
+                # Переходим сразу на страницу календаря
+                logger.info("Переход на страницу календаря")
+                driver.get(self.url)
+                time.sleep(8)
+            
+            logger.info(f"Финальный URL после навигации: {driver.current_url}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Ошибка при навигации: {e}")
+            return False
+    
     def get_available_dates(self):
         driver = None
         try:
-            logger.info(f"Загрузка URL: {self.url}")
             driver = self.get_driver()
-            driver.get(self.url)
             
-            logger.info("Ожидание загрузки календаря (25 секунд)...")
-            time.sleep(25)
+            # Проходим через навигацию
+            self.navigate_through_selection(driver)
             
-            logger.info(f"Текущий URL: {driver.current_url}")
+            logger.info("Ожидание загрузки календаря (20 секунд)...")
+            time.sleep(20)
             
             logger.info("Поиск доступных дат через span[data-locator='working_day']")
             
