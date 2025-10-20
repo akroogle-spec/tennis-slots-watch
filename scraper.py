@@ -1,6 +1,12 @@
-import requests
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import logging
+import time
+import re
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -8,55 +14,93 @@ logger = logging.getLogger(__name__)
 class YClientsScraper:
     def __init__(self):
         self.url = "https://n911781.yclients.com/company/1168982/personal/select-time?o="
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
+    
+    def get_driver(self):
+        chrome_options = Options()
+        chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+        chrome_options.add_argument('--lang=ru-RU')
+        
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.set_page_load_timeout(30)
+        return driver
     
     def get_available_dates(self):
+        driver = None
         try:
-            logger.info(f"Fetching data from {self.url}")
-            response = requests.get(self.url, headers=self.headers, timeout=30)
-            response.raise_for_status()
+            logger.info(f"Opening URL: {self.url}")
+            driver = self.get_driver()
+            driver.get(self.url)
             
-            soup = BeautifulSoup(response.content, 'html.parser')
+            logger.info("Waiting for page content to load (15 seconds)...")
+            time.sleep(15)
             
-            available_dates = []
+            page_source = driver.page_source
             
-            date_elements = soup.find_all('div', class_='sc-date-calendar-day')
-            if not date_elements:
-                date_elements = soup.find_all('button', attrs={'data-date': True})
+            available_dates = set()
             
-            if not date_elements:
-                date_elements = soup.find_all(attrs={'data-date': True})
+            all_elements = driver.find_elements(By.XPATH, "//*")
+            logger.info(f"Total elements on page: {len(all_elements)}")
             
-            logger.info(f"Found {len(date_elements)} date elements")
+            date_pattern = re.compile(r'\d{1,2}\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)', re.IGNORECASE)
+            date_pattern_short = re.compile(r'\d{4}-\d{2}-\d{2}')
             
-            for element in date_elements:
-                classes = element.get('class') or []
-                if isinstance(classes, str):
-                    classes = [classes]
-                if 'disabled' not in classes and 'inactive' not in classes:
-                    date_attr = element.get('data-date')
-                    if date_attr:
-                        available_dates.append(str(date_attr))
-                    else:
-                        text = element.get_text(strip=True)
-                        if text and text.isdigit():
-                            available_dates.append(text)
+            for element in all_elements:
+                try:
+                    text = element.text
+                    if text:
+                        match = date_pattern.search(text)
+                        if match:
+                            available_dates.add(match.group(0))
+                        
+                        match_short = date_pattern_short.search(text)
+                        if match_short:
+                            available_dates.add(match_short.group(0))
+                    
+                    onclick = element.get_attribute('onclick')
+                    if onclick and 'date' in onclick.lower():
+                        available_dates.add(onclick)
+                except:
+                    pass
+            
+            soup = BeautifulSoup(page_source, 'html.parser')
+            
+            calendar_texts = soup.find_all(string=date_pattern)
+            for text in calendar_texts:
+                match = date_pattern.search(str(text))
+                if match:
+                    available_dates.add(match.group(0))
             
             if not available_dates:
-                logger.warning("No dates found with standard selectors, trying alternative method")
-                all_text = soup.get_text()
-                logger.info(f"Page contains {len(all_text)} characters")
+                logger.info("Trying to find buttons or clickable date elements...")
+                buttons = driver.find_elements(By.TAG_NAME, "button")
+                logger.info(f"Found {len(buttons)} buttons on page")
+                
+                for btn in buttons:
+                    try:
+                        btn_text = btn.text.strip()
+                        btn_class = btn.get_attribute('class') or ''
+                        
+                        if btn_text and (btn_text.isdigit() and 1 <= int(btn_text) <= 31):
+                            if 'disabled' not in btn_class.lower() and 'inactive' not in btn_class.lower():
+                                logger.info(f"Found potential date button: {btn_text} (class: {btn_class})")
+                                available_dates.add(btn_text)
+                    except:
+                        pass
             
-            available_dates = sorted(list(set(available_dates)))
-            logger.info(f"Extracted {len(available_dates)} unique available dates")
+            result = sorted(list(available_dates))
+            logger.info(f"Extracted {len(result)} dates: {result[:10] if len(result) > 10 else result}")
             
-            return available_dates
+            return result
             
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error fetching data: {e}")
-            return []
         except Exception as e:
-            logger.error(f"Unexpected error: {e}")
+            logger.error(f"Error in scraper: {e}", exc_info=True)
             return []
+        finally:
+            if driver:
+                driver.quit()
+                logger.info("Browser closed")
