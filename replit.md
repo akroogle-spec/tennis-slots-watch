@@ -10,10 +10,10 @@ Preferred communication style: Simple, everyday language.
 
 ## Application Structure
 
-**Scheduler-Based Architecture**: The system uses APScheduler with a blocking scheduler to run periodic checks every 6 hours. The main loop orchestrates the scraping, comparison, storage, and notification workflows.
+**Scheduler-Based Architecture**: The system uses APScheduler with a background scheduler to run periodic checks every 6 hours. Additionally, a health check HTTP server runs on port 5000 to monitor application status and enable deployment on Replit Reserved VM. The main loop orchestrates the scraping, comparison, storage, and notification workflows.
 
 **Modular Component Design**: The application is split into distinct modules:
-- `main.py` - Entry point and orchestration layer with scheduling logic
+- `main.py` - Entry point, orchestration layer with scheduling logic, and health check HTTP server (port 5000)
 - `scraper.py` - API integration for fetching booking availability data
 - `database.py` - PostgreSQL data persistence layer
 - `telegram_notifier.py` - Telegram Bot API integration for notifications

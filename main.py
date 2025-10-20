@@ -1,9 +1,12 @@
 import logging
 from datetime import datetime
-from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 from scraper import YClientsScraper
 from database import Database
 from telegram_notifier import TelegramNotifier
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+import json
 
 logging.basicConfig(
     level=logging.INFO,
@@ -11,11 +14,48 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+last_check_status = {
+    "status": "starting",
+    "last_check": None,
+    "next_check": None,
+    "dates_found": 0,
+    "error": None
+}
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/health' or self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            
+            response = {
+                "status": "running",
+                "service": "Tennis Court Booking Monitor",
+                "last_check": last_check_status
+            }
+            
+            self.wfile.write(json.dumps(response, indent=2, default=str).encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
+    def log_message(self, format, *args):
+        pass
+
+def start_health_server():
+    server = HTTPServer(('0.0.0.0', 5000), HealthCheckHandler)
+    logger.info("Health check server started on port 5000")
+    server.serve_forever()
+
 def check_calendar():
+    global last_check_status
     logger.info("=" * 60)
     logger.info(f"Starting calendar check at {datetime.now()}")
     
     try:
+        last_check_status["status"] = "checking"
+        
         scraper = YClientsScraper()
         db = Database()
         notifier = TelegramNotifier()
@@ -47,8 +87,20 @@ def check_calendar():
         db.save_snapshot(current_dates)
         logger.info(f"Snapshot saved with {len(current_dates)} dates")
         
+        last_check_status.update({
+            "status": "healthy",
+            "last_check": datetime.now(),
+            "dates_found": len(current_dates),
+            "error": None
+        })
+        
     except Exception as e:
         logger.error(f"Error during calendar check: {e}", exc_info=True)
+        last_check_status.update({
+            "status": "error",
+            "last_check": datetime.now(),
+            "error": str(e)
+        })
         try:
             notifier = TelegramNotifier()
             notifier.notify_error(str(e))
@@ -60,20 +112,27 @@ def check_calendar():
 
 def main():
     logger.info("Tennis Court Booking Monitor started")
-    logger.info("Performing initial check...")
     
+    health_thread = threading.Thread(target=start_health_server, daemon=True)
+    health_thread.start()
+    
+    logger.info("Performing initial check...")
     check_calendar()
     
-    scheduler = BlockingScheduler()
+    scheduler = BackgroundScheduler()
     scheduler.add_job(check_calendar, 'interval', hours=6, id='calendar_check')
+    scheduler.start()
     
     logger.info("Scheduler started - will check every 6 hours")
     logger.info("Next check scheduled for 6 hours from now")
     
     try:
-        scheduler.start()
+        while True:
+            import time
+            time.sleep(60)
     except (KeyboardInterrupt, SystemExit):
         logger.info("Scheduler stopped")
+        scheduler.shutdown()
 
 if __name__ == "__main__":
     main()
