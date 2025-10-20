@@ -16,7 +16,7 @@ def check_calendar():
     logger.info(f"Starting calendar check at {datetime.now()}")
     
     try:
-        scraper = YClientsScraper()
+        scraper = YClientsScraper(https://n911781.yclients.com/company/1168982/personal/select-time?o=d252110)
         db = Database()
         notifier = TelegramNotifier()
         
