@@ -10,10 +10,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class YClientsScraper:
-    def __init__(self, base_url="https://n911781.yclients.com/"):
-        self.base_url = base_url
-        self.city_value = "2"
-        self.branch_value = "1168982"
+    def __init__(self, url="https://n911781.yclients.com/company/1168982/personal/select-time?o="):
+        self.url = url
     
     def get_driver(self):
         chrome_options = Options()
@@ -37,82 +35,44 @@ class YClientsScraper:
     def get_available_dates(self):
         driver = None
         try:
-            logger.info(f"Шаг 1: Загрузка базового URL: {self.base_url}")
+            logger.info(f"Загрузка URL: {self.url}")
             driver = self.get_driver()
-            driver.get(self.base_url)
-            time.sleep(3)
+            driver.get(self.url)
             
-            logger.info(f"Шаг 2: Выбор города (значение {self.city_value})")
-            city_selected = False
-            
-            try:
-                city_button = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.XPATH, f"//button[@value='{self.city_value}']"))
-                )
-                city_button.click()
-                city_selected = True
-                logger.info("Город выбран через кнопку")
-            except:
-                logger.info("Кнопка города не найдена, пробую ссылку...")
-                try:
-                    city_link = driver.find_element(By.XPATH, f"//a[contains(@href, 'city={self.city_value}')]")
-                    city_link.click()
-                    city_selected = True
-                    logger.info("Город выбран через ссылку")
-                except:
-                    logger.warning("Не удалось выбрать город стандартными способами")
-            
-            if city_selected:
-                time.sleep(3)
-            
-            logger.info(f"Шаг 3: Выбор филиала (значение {self.branch_value})")
-            branch_selected = False
-            
-            try:
-                branch_element = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.XPATH, f"//*[contains(@href, '{self.branch_value}') or @value='{self.branch_value}']"))
-                )
-                branch_element.click()
-                branch_selected = True
-                logger.info("Филиал выбран")
-            except:
-                logger.warning("Не удалось выбрать филиал, возможно уже на странице календаря")
-            
-            if branch_selected:
-                time.sleep(5)
+            logger.info("Ожидание загрузки календаря (25 секунд)...")
+            time.sleep(25)
             
             logger.info(f"Текущий URL: {driver.current_url}")
             
-            logger.info("Шаг 4: Ожидание загрузки календаря...")
-            time.sleep(10)
+            logger.info("Поиск доступных дат через span[data-locator='working_day']")
             
-            logger.info("Шаг 5: Поиск доступных дат через span[data-locator='working_day']")
+            working_day_elements = driver.find_elements(By.XPATH, "//span[@data-locator='working_day']")
+            non_working_day_elements = driver.find_elements(By.XPATH, "//span[@data-locator='non_working_day']")
             
-            working_days = driver.find_elements(By.XPATH, "//span[@data-locator='working_day']")
-            logger.info(f"Найдено элементов с working_day: {len(working_days)}")
-            
-            non_working_days = driver.find_elements(By.XPATH, "//span[@data-locator='non_working_day']")
-            logger.info(f"Найдено элементов с non_working_day: {len(non_working_days)}")
+            logger.info(f"Найдено элементов с data-locator='working_day': {len(working_day_elements)}")
+            logger.info(f"Найдено элементов с data-locator='non_working_day': {len(non_working_day_elements)}")
             
             available_dates = []
             
-            for day_element in working_days:
+            for element in working_day_elements:
                 try:
-                    date_text = day_element.text.strip()
+                    date_text = element.text.strip()
                     
                     if not date_text:
-                        date_text = day_element.get_attribute('innerText')
+                        date_text = element.get_attribute('innerText')
                     
-                    parent = day_element.find_element(By.XPATH, "./..")
+                    parent = element.find_element(By.XPATH, "./..")
                     aria_label = parent.get_attribute('aria-label')
                     title = parent.get_attribute('title')
                     data_date = parent.get_attribute('data-date')
                     
                     date_info = aria_label or title or data_date or date_text
                     
-                    if date_info and date_info not in available_dates:
-                        available_dates.append(date_info)
-                        logger.info(f"Найдена доступная дата: {date_info}")
+                    if date_info and date_info.strip():
+                        date_info = date_info.strip()
+                        if date_info not in available_dates:
+                            available_dates.append(date_info)
+                            logger.info(f"  Найдена доступная дата: {date_info}")
                 
                 except Exception as e:
                     logger.debug(f"Ошибка при обработке элемента: {e}")
