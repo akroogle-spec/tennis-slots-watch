@@ -120,11 +120,11 @@ def main():
     check_calendar()
     
     scheduler = BackgroundScheduler()
-    scheduler.add_job(check_calendar, 'interval', hours=6, id='calendar_check')
+    scheduler.add_job(check_calendar, 'interval', hours=1, id='calendar_check')
     scheduler.start()
     
-    logger.info("Scheduler started - will check every 6 hours")
-    logger.info("Next check scheduled for 6 hours from now")
+    logger.info("Scheduler started - will check every 1 hour")
+    logger.info("Next check scheduled for 1 hour from now")
     
     try:
         while True:
